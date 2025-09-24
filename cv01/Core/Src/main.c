@@ -98,7 +98,10 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+	  LL_GPIO_SetOutputPin(LD2_GPIO_Port, LD2_Pin); // set pin
+	  LL_mDelay(200);
+	  LL_GPIO_ResetOutputPin(LD2_GPIO_Port, LD2_Pin);
+	  LL_mDelay(200);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
