@@ -94,9 +94,9 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  /*sct_init();
+  sct_init();
   sct_led(0x7A5C36DE);
-  HAL_Delay(1000);*/
+  HAL_Delay(1000);
   HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
   /* USER CODE END 2 */
 

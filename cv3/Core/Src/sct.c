@@ -64,11 +64,11 @@ void sct_led(uint32_t value) {
 
 void sct_value(uint16_t value){
 
-	    uint32_t reg = 0;
-	    reg |= reg_values[0][value / 100 % 10];  // stovky
-	    reg |= reg_values[1][value / 10 % 10];   // desítky
-	    reg |= reg_values[2][value % 10];        // jednotky
+	uint32_t reg = 0;
+	reg |= reg_values[0][value / 100 % 10];  // stovky
+	reg |= reg_values[1][value / 10 % 10];   // desítky
+	reg |= reg_values[2][value % 10];        // jednotky
 
-	    sct_led(reg); // pošli do registru
-	}
+	sct_led(reg); // pošli do registru
+}
 
