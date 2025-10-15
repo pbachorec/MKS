@@ -59,10 +59,15 @@ static void MX_ADC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
- static volatile uint32_t raw_pot;
+#define ADC_Q 15
+ static volatile uint32_t raw_pot=0;
+ static uint32_t avg_pot = 0;
   void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
   {
-	  raw_pot = HAL_ADC_GetValue(hadc);
+
+	   raw_pot = avg_pot >> ADC_Q;
+	   avg_pot -= raw_pot;
+	   avg_pot += HAL_ADC_GetValue(hadc);
   }
 /* USER CODE END 0 */
 
