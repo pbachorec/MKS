@@ -59,57 +59,58 @@ static void MX_ADC_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-#define ADC_Q 15
+#define ADC_Q 12
 #define TEMP110_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7C2))
 #define TEMP30_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7B8))
 #define VREFINT_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7BA))
- static volatile uint32_t raw_pot=0;
- static volatile uint32_t raw_temp=0;
- static volatile uint32_t raw_volt=0;
- static uint32_t avg_pot = 0;
-  void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-  {
+static volatile uint32_t raw_pot=0;
+static volatile uint32_t raw_temp=0;
+static volatile uint32_t raw_volt=0;
 
-	   raw_pot = avg_pot >> ADC_Q;
-	   avg_pot -= raw_pot;
-	   avg_pot += HAL_ADC_GetValue(hadc);
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+	static uint32_t avg_pot = 0;
 
-	   if (hadc->Instance == ADC1)
-	       {
-	           static uint8_t channel = 0;
+	/*raw_pot = avg_pot >> ADC_Q;
+	avg_pot -= raw_pot;
+	avg_pot += HAL_ADC_GetValue(hadc);*/
 
-	           uint32_t adc = HAL_ADC_GetValue(hadc);
+	if (hadc->Instance == ADC1)
+	{
+		static uint8_t channel = 0;
 
-	           switch (channel)
-	           {
-	           case 0:
+		uint32_t adc = HAL_ADC_GetValue(hadc);
 
-	               avg_pot = avg_pot - (avg_pot >> ADC_Q) + adc;
-	               raw_pot = avg_pot >> ADC_Q;
-	               break;
+		switch (channel)
+		{
+		case 0:
 
-	           case 1:
+			avg_pot = avg_pot - (avg_pot >> ADC_Q) + adc;
+			raw_pot = avg_pot >> ADC_Q;
+			break;
 
-	               raw_temp = adc;
-	               break;
+		case 1:
 
-	           case 2:
+			raw_temp = adc;
+			break;
 
-	               raw_volt = adc;
-	               break;
-	           }
+		case 2:
 
-	           if (__HAL_ADC_GET_FLAG(hadc, ADC_FLAG_EOS))
-	           {
-	               channel = 0;
-	           }
-	           else
-	           {
-	               channel++;
-	           }
-	           HAL_ADC_Start_IT(hadc);
-	       }
-  }
+			raw_volt = adc;
+			break;
+		}
+
+		if (__HAL_ADC_GET_FLAG(hadc, ADC_FLAG_EOS))
+		{
+			channel = 0;
+		}
+		else
+		{
+			channel++;
+		}
+
+	}
+}
 /* USER CODE END 0 */
 
 /**
@@ -156,59 +157,59 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
+	  /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+	  /* USER CODE BEGIN 3 */
 	  static enum { SHOW_POT, SHOW_VOLT, SHOW_TEMP } state = SHOW_POT;
 	  static uint32_t last_press = 0;
 
 
 
-	      if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_RESET) {  // S2 = PC0
-	              state = SHOW_VOLT;
-	              last_press = HAL_GetTick();
-	          } else if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) {  // S1 = PC1
-	              state = SHOW_TEMP;
-	              last_press = HAL_GetTick();
-	          }
-
-	          // Po 1 sekundě se vrátíme do výchozího stavu
-	          if ((state != SHOW_POT) && (HAL_GetTick() - last_press > 1000)) {
-	              state = SHOW_POT;
-	          }
-
-	          uint32_t value = 0;
-	          uint8_t led = 0;
-
-	              switch (state) {
-	                  case SHOW_POT:
-	                      value = raw_pot * 500 / 4096;         // přepočet napětí z trimmeru
-	                      led = raw_pot * 9 / 4096;
-	                      break;
-
-	                  case SHOW_VOLT:
-	                      if (raw_volt != 0) {
-	                          value = 330 * (*VREFINT_CAL_ADDR) / raw_volt;
-	                          led = 2;
-	                      }
-	                      break;
-
-	                  case SHOW_TEMP:
-	                      {
-	                          int32_t temperature = (raw_temp - (int32_t)(*TEMP30_CAL_ADDR));
-	                          temperature = temperature * (int32_t)(110 - 30);
-	                          temperature = temperature / (int32_t)(*TEMP110_CAL_ADDR - *TEMP30_CAL_ADDR);
-	                          temperature = temperature + 30;
-
-	                          value = temperature;
-	                          led = 1;
-	                      }
-	                      break;
-	              }
+	  if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_RESET) {  // S2 = PC0
+		  state = SHOW_VOLT;
+		  last_press = HAL_GetTick();
+	  } else if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) {  // S1 = PC1
+		  state = SHOW_TEMP;
+		  last_press = HAL_GetTick();
+	  }
 
 
-	      sct_value(value, led);
-	      HAL_Delay(50);
+	  if ((state != SHOW_POT) && (HAL_GetTick() - last_press > 1000)) {
+		  state = SHOW_POT;
+	  }
+
+	  uint32_t value = 0;
+	  uint8_t led = 0;
+
+	  switch (state) {
+	  case SHOW_POT:
+		  value = raw_pot * 500 / 4096;
+		  led = raw_pot * 9 / 4096;
+		  break;
+
+	  case SHOW_VOLT:
+		  if (raw_volt != 0) {
+			  value = 330 * (*VREFINT_CAL_ADDR) / raw_volt;
+			  led = 2;
+		  }
+		  break;
+
+	  case SHOW_TEMP:
+	  {
+		  int32_t temperature = (raw_temp - (int32_t)(*TEMP30_CAL_ADDR));
+		  temperature = temperature * (int32_t)(110 - 30);
+		  temperature = temperature / (int32_t)(*TEMP110_CAL_ADDR - *TEMP30_CAL_ADDR);
+		  temperature = temperature + 30;
+
+		  value = temperature;
+		  led = 1;
+	  }
+	  break;
+	  }
+
+
+	  sct_value(value, led);
+	  HAL_Delay(50);
   }
 }
   /* USER CODE END 3 */
