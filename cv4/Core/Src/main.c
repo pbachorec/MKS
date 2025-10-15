@@ -60,7 +60,12 @@ static void MX_ADC_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #define ADC_Q 15
+#define TEMP110_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7C2))
+#define TEMP30_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7B8))
+#define VREFINT_CAL_ADDR ((uint16_t*) ((uint32_t) 0x1FFFF7BA))
  static volatile uint32_t raw_pot=0;
+ static volatile uint32_t raw_temp=0;
+ static volatile uint32_t raw_volt=0;
  static uint32_t avg_pot = 0;
   void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
   {
@@ -68,6 +73,42 @@ static void MX_ADC_Init(void);
 	   raw_pot = avg_pot >> ADC_Q;
 	   avg_pot -= raw_pot;
 	   avg_pot += HAL_ADC_GetValue(hadc);
+
+	   if (hadc->Instance == ADC1)
+	       {
+	           static uint8_t channel = 0;
+
+	           uint32_t adc = HAL_ADC_GetValue(hadc);
+
+	           switch (channel)
+	           {
+	           case 0:
+
+	               avg_pot = avg_pot - (avg_pot >> ADC_Q) + adc;
+	               raw_pot = avg_pot >> ADC_Q;
+	               break;
+
+	           case 1:
+
+	               raw_temp = adc;
+	               break;
+
+	           case 2:
+
+	               raw_volt = adc;
+	               break;
+	           }
+
+	           if (__HAL_ADC_GET_FLAG(hadc, ADC_FLAG_EOS))
+	           {
+	               channel = 0;
+	           }
+	           else
+	           {
+	               channel++;
+	           }
+	           HAL_ADC_Start_IT(hadc);
+	       }
   }
 /* USER CODE END 0 */
 
@@ -79,8 +120,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
-
 
   /* USER CODE END 1 */
 
@@ -120,13 +159,60 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  uint32_t value = raw_pot * 500 / 4096;
-	      uint8_t led = raw_pot * 9 / 4096;
+	  static enum { SHOW_POT, SHOW_VOLT, SHOW_TEMP } state = SHOW_POT;
+	  static uint32_t last_press = 0;
+
+
+
+	      if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_0) == GPIO_PIN_RESET) {  // S2 = PC0
+	              state = SHOW_VOLT;
+	              last_press = HAL_GetTick();
+	          } else if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_1) == GPIO_PIN_RESET) {  // S1 = PC1
+	              state = SHOW_TEMP;
+	              last_press = HAL_GetTick();
+	          }
+
+	          // Po 1 sekundě se vrátíme do výchozího stavu
+	          if ((state != SHOW_POT) && (HAL_GetTick() - last_press > 1000)) {
+	              state = SHOW_POT;
+	          }
+
+	          uint32_t value = 0;
+	          uint8_t led = 0;
+
+	              switch (state) {
+	                  case SHOW_POT:
+	                      value = raw_pot * 500 / 4096;         // přepočet napětí z trimmeru
+	                      led = raw_pot * 9 / 4096;
+	                      break;
+
+	                  case SHOW_VOLT:
+	                      if (raw_volt != 0) {
+	                          value = 330 * (*VREFINT_CAL_ADDR) / raw_volt;
+	                          led = 2;
+	                      }
+	                      break;
+
+	                  case SHOW_TEMP:
+	                      {
+	                          int32_t temperature = (raw_temp - (int32_t)(*TEMP30_CAL_ADDR));
+	                          temperature = temperature * (int32_t)(110 - 30);
+	                          temperature = temperature / (int32_t)(*TEMP110_CAL_ADDR - *TEMP30_CAL_ADDR);
+	                          temperature = temperature + 30;
+
+	                          value = temperature;
+	                          led = 1;
+	                      }
+	                      break;
+	              }
+
 
 	      sct_value(value, led);
-	      HAL_Delay(50); }
-  /* USER CODE END 3 */
+	      HAL_Delay(50);
+  }
 }
+  /* USER CODE END 3 */
+
 
 /**
   * @brief System Clock Configuration
@@ -216,6 +302,22 @@ static void MX_ADC_Init(void)
   {
     Error_Handler();
   }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_TEMPSENSOR;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_VREFINT;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN ADC_Init 2 */
 
   /* USER CODE END ADC_Init 2 */
@@ -286,6 +388,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : S2_Pin S1_Pin */
+  GPIO_InitStruct.Pin = S2_Pin|S1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LD2_Pin */
   GPIO_InitStruct.Pin = LD2_Pin;
