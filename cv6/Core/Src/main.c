@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -41,7 +41,9 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+typedef enum { S2_ACTIVE, S1_ACTIVE } State_t;
+static State_t current_state = S2_ACTIVE;
+static uint32_t ds18b20_last_conversion = 0;
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -52,7 +54,7 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 
 static const int16_t ntc_table[1024] = {
-    #include "data.dlm"
+#include "data.dlm"
 };
 
 /* USER CODE END PV */
@@ -104,20 +106,20 @@ int main(void)
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
 
-  sct_init();
-  OWInit();
+	sct_init();
+	OWInit();
 
-  HAL_ADCEx_Calibration_Start(&hadc);
-  HAL_ADC_Start(&hadc);
+	HAL_ADCEx_Calibration_Start(&hadc);
+	HAL_ADC_Start(&hadc);
 
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-/*
+	while (1)
+	{
+		/*
 	  OWConvertAll();
 	  HAL_Delay(CONVERT_T_DELAY);
 
@@ -132,22 +134,59 @@ int main(void)
 	          sct_value((uint16_t)tenths, led);
 	      }*/
 
-	  uint16_t ad = HAL_ADC_GetValue(&hadc);
+		if(HAL_GPIO_ReadPin(GPIOC, S2_Pin) == GPIO_PIN_RESET)
+			current_state = S2_ACTIVE;
+		else if(HAL_GPIO_ReadPin(GPIOC, S1_Pin) == GPIO_PIN_RESET)
+			current_state = S1_ACTIVE;
 
-	  int16_t t10 = ntc_table[ad];
-	  if (t10 < 0) t10 = 0;
 
-	  uint8_t led = 0;   // bargraph
+		switch(current_state)
+		{
+		/*case IDLE:
+			HAL_GPIO_WritePin(GPIOA, LED_1_Pin|LED_2_Pin, GPIO_PIN_RESET);
+			break;
+		 */
+		case S2_ACTIVE:
+		{
+			HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, GPIO_PIN_RESET);
 
-	  sct_value((uint16_t)t10, led, 1);
+			uint16_t ad = HAL_ADC_GetValue(&hadc);
+			int16_t t10 = ntc_table[ad];
+			if(t10 < 0) t10 = 0;
 
-	  HAL_Delay(1000);
+			sct_value((uint16_t)t10, 0, 1);
+			break;
+		}
+
+		case S1_ACTIVE:
+		{
+			HAL_GPIO_WritePin(LED_1_GPIO_Port, LED_1_Pin, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(LED_2_GPIO_Port, LED_2_Pin, GPIO_PIN_SET);
+
+			if(HAL_GetTick() - ds18b20_last_conversion >= CONVERT_T_DELAY)
+			{
+				OWConvertAll();
+				ds18b20_last_conversion = HAL_GetTick();
+			}
+
+			int16_t temp_18b20;
+			if(OWReadTemperature(&temp_18b20))
+			{
+				int16_t tenths = (temp_18b20 >= 0) ? (temp_18b20 + 5)/10 : (temp_18b20 - 5)/10;
+				sct_value((uint16_t)tenths, 0, 1);
+			}
+			break;
+		}
+		}
+
+		HAL_Delay(100);
 
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+	}
   /* USER CODE END 3 */
 }
 
@@ -299,14 +338,11 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LED_1_Pin|LD2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, LED_1_Pin|LD2_Pin|DQ_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LD2_Pin|SCT_NOE_Pin|SCT_CLK_Pin|SCT_SDI_Pin
+  HAL_GPIO_WritePin(GPIOB, LED_2_Pin|SCT_NOE_Pin|SCT_CLK_Pin|SCT_SDI_Pin
                           |SCT_NLA_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(DQ_GPIO_Port, DQ_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
@@ -320,28 +356,21 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED1_Pin LD2_Pin */
-  GPIO_InitStruct.Pin = LED_1_Pin|LD2_Pin;
+  /*Configure GPIO pins : LED_1_Pin LD2_Pin DQ_Pin */
+  GPIO_InitStruct.Pin = LED_1_Pin|LD2_Pin|DQ_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED2_Pin SCT_NOE_Pin SCT_CLK_Pin SCT_SDI_Pin
+  /*Configure GPIO pins : LED_2_Pin SCT_NOE_Pin SCT_CLK_Pin SCT_SDI_Pin
                            SCT_NLA_Pin */
-  GPIO_InitStruct.Pin = LD2_Pin|SCT_NOE_Pin|SCT_CLK_Pin|SCT_SDI_Pin
+  GPIO_InitStruct.Pin = LED_2_Pin|SCT_NOE_Pin|SCT_CLK_Pin|SCT_SDI_Pin
                           |SCT_NLA_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : DQ_Pin */
-  GPIO_InitStruct.Pin = DQ_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(DQ_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -363,11 +392,11 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+	/* User can add his own implementation to report the HAL error return state */
+	__disable_irq();
+	while (1)
+	{
+	}
   /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
@@ -381,7 +410,7 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
+	/* User can add his own implementation to report the file name and line number,
      ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
