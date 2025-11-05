@@ -19,7 +19,9 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-
+#include "lis2dw12_reg.h"
+#include <stdio.h>
+#include "stm32f0xx_hal.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -41,6 +43,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 UART_HandleTypeDef huart2;
 
 osThreadId defaultTaskHandle;
@@ -55,6 +59,7 @@ osMessageQId xVisualQueueHandle;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_I2C1_Init(void);
 void StartDefaultTask(void const * argument);
 void StartVisualTask(void const * argument);
 void StartAcceleroTask(void const * argument);
@@ -65,7 +70,28 @@ void StartAcceleroTask(void const * argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static int32_t platform_write(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len)
+{
+	HAL_I2C_Mem_Write(handle, LIS2DW12_I2C_ADD_H, reg, I2C_MEMADD_SIZE_8BIT, bufp, len, 1000);
+	return 0;
+}
+static int32_t platform_read(void *handle, uint8_t reg, uint8_t *bufp, uint16_t len)
+{
+	HAL_I2C_Mem_Read(handle, LIS2DW12_I2C_ADD_H, reg, I2C_MEMADD_SIZE_8BIT, bufp, len, 1000);
+	return 0;
+}
+// Kontext pro LIS2DW12
+static stmdev_ctx_t lis2dw12 = {
+		.write_reg = platform_write,
+		.read_reg = platform_read,
+		.handle = &hi2c1,
+};
 
+int _write(int file, char *ptr, int len)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t*)ptr, len, HAL_MAX_DELAY);
+	return len;
+}
 /* USER CODE END 0 */
 
 /**
@@ -98,6 +124,7 @@ int main(void)
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
 	MX_USART2_UART_Init();
+	MX_I2C1_Init();
 	/* USER CODE BEGIN 2 */
 
 	/* USER CODE END 2 */
@@ -116,7 +143,7 @@ int main(void)
 
 	/* Create the queue(s) */
 	/* definition and creation of xVisualQueue */
-	osMessageQDef(xVisualQueue, 16, int16_t);
+	osMessageQDef(xVisualQueue, 16, uint16_t);
 	xVisualQueueHandle = osMessageCreate(osMessageQ(xVisualQueue), NULL);
 
 	/* USER CODE BEGIN RTOS_QUEUES */
@@ -164,6 +191,7 @@ void SystemClock_Config(void)
 {
 	RCC_OscInitTypeDef RCC_OscInitStruct = {0};
 	RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+	RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
 	/** Initializes the RCC Oscillators according to the specified parameters
 	 * in the RCC_OscInitTypeDef structure.
@@ -192,6 +220,60 @@ void SystemClock_Config(void)
 	{
 		Error_Handler();
 	}
+	PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_I2C1;
+	PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
+	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+	{
+		Error_Handler();
+	}
+}
+
+/**
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C1_Init(void)
+{
+
+	/* USER CODE BEGIN I2C1_Init 0 */
+
+	/* USER CODE END I2C1_Init 0 */
+
+	/* USER CODE BEGIN I2C1_Init 1 */
+
+	/* USER CODE END I2C1_Init 1 */
+	hi2c1.Instance = I2C1;
+	hi2c1.Init.Timing = 0x00201D2B;
+	hi2c1.Init.OwnAddress1 = 0;
+	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+	hi2c1.Init.OwnAddress2 = 0;
+	hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+	hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+	hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+	if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	/** Configure Analogue filter
+	 */
+	if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	/** Configure Digital filter
+	 */
+	if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	/* USER CODE BEGIN I2C1_Init 2 */
+
+	/* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -349,29 +431,51 @@ void StartVisualTask(void const * argument)
 /* USER CODE END Header_StartAcceleroTask */
 void StartAcceleroTask(void const * argument)
 {
-	int16_t msg;
-	int state=0;
 	/* USER CODE BEGIN StartAcceleroTask */
+
+	// Check device ID
+	uint8_t whoamI = 0;
+	lis2dw12_device_id_get(&lis2dw12, &whoamI);
+	printf("LIS2DW12_ID %s\n", (whoamI == LIS2DW12_ID) ? "OK" : "FAIL");
+
+
+	lis2dw12_full_scale_set(&lis2dw12, LIS2DW12_2g);
+	lis2dw12_power_mode_set(&lis2dw12, LIS2DW12_CONT_LOW_PWR_LOW_NOISE_2);
+	lis2dw12_block_data_update_set(&lis2dw12, PROPERTY_ENABLE);
+	// enable continuous FIFO
+	lis2dw12_fifo_mode_set(&lis2dw12, LIS2DW12_STREAM_MODE);
+	// enable part from power-down
+	lis2dw12_data_rate_set(&lis2dw12, LIS2DW12_XL_ODR_25Hz);
+
+
 	/* Infinite loop */
+
 	for(;;)
 	{
-		switch (state)
-		{
-		case 0: msg = -5000; break;
-		case 1: msg = 0; break;
-		case 2: msg = 5000; break;
-		case 3: msg = 0; break;
+		uint8_t samples;
+		int16_t raw_acceleration[3]; // X,Y,Z
+		for(uint8_t j=0; j<20; j++){
+			lis2dw12_fifo_data_level_get(&lis2dw12, &samples);
+			for (uint8_t i = 0; i < samples; i++) {
+
+				lis2dw12_acceleration_raw_get(&lis2dw12, raw_acceleration);
+
+			}
+
+			// poslat hodnoty do fronty
+			xQueueSend(xVisualQueueHandle, &raw_acceleration[0], 0);
+
+			// pauza 50 ms
+			vTaskDelay(50);
 		}
-		state = (state + 1) % 4;
-
-		// zprava do fronty
-		xQueueSend(xVisualQueueHandle, &msg, 0);
-
-		// wait 300 ms
-		vTaskDelay(300);
+		printf("X=%d Y=%d Z=%d\n", raw_acceleration[0], raw_acceleration[1], raw_acceleration[2]);
 	}
+	/* USER CODE END StartAcceleroTask */
+
 }
+
 /* USER CODE END StartAcceleroTask */
+
 
 /**
  * @brief  Period elapsed callback in non blocking mode
