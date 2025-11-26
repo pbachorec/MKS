@@ -116,6 +116,10 @@ int main(void)
 	/* USER CODE BEGIN WHILE */
 	while (1)
 	{
+
+		HAL_GPIO_TogglePin(LD1_GPIO_Port, LD1_Pin);
+		HAL_Delay(250);
+
 		if(key != 0)
 		{
 			printf("pressed '%c'\n", key);
