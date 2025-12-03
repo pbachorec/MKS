@@ -45,13 +45,14 @@
 #include <stdio.h>
 #include <strings.h>
 
+
 #define TELNET_THREAD_PRIO  ( tskIDLE_PRIORITY + 4 )
 #define CMD_BUFFER_LEN 256
 
 
 static void telnet_byte_available(uint8_t c, struct netconn *conn);
 static void telnet_process_command(char *cmd, struct netconn *conn);
-
+static void http_client(char *s, uint16_t size);
 /*-----------------------------------------------------------------------------------*/
 static void telnet_thread(void *arg)
 {
@@ -132,67 +133,101 @@ static void telnet_byte_available(uint8_t c, struct netconn *conn)
 
 static void telnet_process_command(char *cmd, struct netconn *conn)
 {
-    char *token;
-    char *saveptr;
-    char out[128];
+	char *token;
+	char *saveptr;
+	static char out[1024];
 
-    token = strtok_r(cmd, " ", &saveptr);
-    if (token == NULL) return;
+	token = strtok_r(cmd, " ", &saveptr);
+	if (token == NULL) return;
 
-    // HELLO
-    if (strcasecmp(token, "HELLO") == 0) {
-        sprintf(out, "Communication OK\r\n");
-        netconn_write(conn, out, strlen(out), NETCONN_COPY);
-    }
+	// HELLO
+	if (strcasecmp(token, "HELLO") == 0) {
+		sprintf(out, "Communication OK\r\n");
+		netconn_write(conn, out, strlen(out), NETCONN_COPY);
+	}
 
-    // LED1 / LED2 / LED3 ON|OFF
-    else if (strcasecmp(token, "LED1") == 0 ||
-             strcasecmp(token, "LED2") == 0 ||
-             strcasecmp(token, "LED3") == 0)
-    {
-        GPIO_TypeDef *port = NULL;
-        uint16_t pin = 0;
+	// LED1, LED2, LED3
+	else if (strcasecmp(token, "LED1") == 0 ||
+			strcasecmp(token, "LED2") == 0 ||
+			strcasecmp(token, "LED3") == 0)
+	{
+		GPIO_TypeDef *port = NULL;
+		uint16_t pin = 0;
 
-        if (strcasecmp(token, "LED1") == 0) {
-            port = LED1_GPIO_Port;
-            pin  = LED1_Pin;
-        } else if (strcasecmp(token, "LED2") == 0) {
-            port = LED2_GPIO_Port;
-            pin  = LED2_Pin;
-        } else if (strcasecmp(token, "LED3") == 0) {
-            port = LED3_GPIO_Port;
-            pin  = LED3_Pin;
-        }
+		if (strcasecmp(token, "LED1") == 0) {
+			port = LED1_GPIO_Port;
+			pin  = LED1_Pin;
+		} else if (strcasecmp(token, "LED2") == 0) {
+			port = LED2_GPIO_Port;
+			pin  = LED2_Pin;
+		} else if (strcasecmp(token, "LED3") == 0) {
+			port = LED3_GPIO_Port;
+			pin  = LED3_Pin;
+		}
 
-        token = strtok_r(NULL, " ", &saveptr);
-        if (token && port) {
-            if (strcasecmp(token, "ON") == 0) {
-                HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
-                sprintf(out, "OK\r\n");
-            } else if (strcasecmp(token, "OFF") == 0) {
-                HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
-                sprintf(out, "OK\r\n");
-            } else {
-                sprintf(out, "ERR Unknown param\r\n");
-            }
-        } else {
-            sprintf(out, "ERR Missing param\r\n");
-        }
+		token = strtok_r(NULL, " ", &saveptr);
+		if (token && port) {
+			if (strcasecmp(token, "ON") == 0) {
+				HAL_GPIO_WritePin(port, pin, GPIO_PIN_SET);
+				sprintf(out, "OK\r\n");
+			} else if (strcasecmp(token, "OFF") == 0) {
+				HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+				sprintf(out, "OK\r\n");
+			} else {
+				sprintf(out, "ERR Unknown param\r\n");
+			}
+		} else {
+			sprintf(out, "ERR Missing param\r\n");
+		}
 
-        netconn_write(conn, out, strlen(out), NETCONN_COPY);
-    }
+		netconn_write(conn, out, strlen(out), NETCONN_COPY);
+	}
 
-    // STATUS
-    else if (strcasecmp(token, "STATUS") == 0) {
-        sprintf(out, "LED1=%s LED2=%s LED3=%s\r\n",
-                HAL_GPIO_ReadPin(LED1_GPIO_Port, LED1_Pin) ? "ON" : "OFF",
-                HAL_GPIO_ReadPin(LED2_GPIO_Port, LED2_Pin) ? "ON" : "OFF",
-                HAL_GPIO_ReadPin(LED3_GPIO_Port, LED3_Pin) ? "ON" : "OFF");
-        netconn_write(conn, out, strlen(out), NETCONN_COPY);
-    }
+	// STATUS
+	else if (strcasecmp(token, "STATUS") == 0) {
+		sprintf(out, "LED1=%s LED2=%s LED3=%s\r\n",
+			HAL_GPIO_ReadPin(LED1_GPIO_Port, LED1_Pin) ? "ON" : "OFF",
+			HAL_GPIO_ReadPin(LED2_GPIO_Port, LED2_Pin) ? "ON" : "OFF",
+			HAL_GPIO_ReadPin(LED3_GPIO_Port, LED3_Pin) ? "ON" : "OFF");
+		netconn_write(conn, out, strlen(out), NETCONN_COPY);
+	}
+
+	// CLIENT
+	else if (strcasecmp(token, "CLIENT") == 0) {
+		http_client(out, sizeof(out));
+		netconn_write(conn, out, strlen(out), NETCONN_COPY);
+	}
 
 
 }
+
+static void http_client(char *s, uint16_t size)
+{
+	struct netconn *client;
+	struct netbuf *buf;
+	ip_addr_t ip;
+	uint16_t len = 0;
+	IP_ADDR4(&ip, 147,229,144,124);
+	const char *request = "GET /ip.php HTTP/1.1\r\n"
+			"Host: www.urel.feec.vutbr.cz\r\n"
+			"Connection: close\r\n"
+			"\r\n\r\n";
+	client = netconn_new(NETCONN_TCP);
+	if (netconn_connect(client, &ip, 80) == ERR_OK) {
+		netconn_write(client, request, strlen(request), NETCONN_COPY);
+		// Receive the HTTP response
+		s[0] = 0;
+		while (len < size && netconn_recv(client, &buf) == ERR_OK) {
+			len += netbuf_copy(buf, &s[len], size-len);
+			s[len] = 0;
+			netbuf_delete(buf);
+		}
+	} else {
+		sprintf(s, "Connection error\n");
+	}
+	netconn_delete(client);
+}
+
 
 
 #endif /* LWIP_NETCONN */
