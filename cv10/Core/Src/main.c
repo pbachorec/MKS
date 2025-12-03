@@ -24,6 +24,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 extern void tcpecho_init(void);
+#include "lwip/apps/httpd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -307,8 +308,10 @@ void StartDefaultTask(void const * argument)
   /* Initialize TCP echo server */
   tcpecho_init();
 
+  /* Initialize HTTP server */
+  httpd_init();
+
   /* USER CODE BEGIN 5 */
-  /* Infinite loop */
   for(;;)
   {
     osDelay(1);
